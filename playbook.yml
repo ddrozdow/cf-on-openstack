@@ -34,20 +34,14 @@
     # set the appliance hostname. we could do this with appliance_console_cli --host, but
     # we don't get the same idempotency as using the module. where ansible modules work, use
     # them.
-    - name: set appliance fqdn
-      block:
+    - name: set hostname
+      shell: >
+        appliance_console_cli
+        --host="{{ inventory_hostname }}"
+      when: inventory_hostname != ansible_fqdn
+      tags:
+        - set_host
 
-        - name: set hostname
-          hostname:
-            name: "{{ cfme_appliance_fqdn if cfme_appliance_fqdn is defined else inventory_hostname }}"
-
-        - name: update /etc/hosts
-          lineinfile:
-            dest: /etc/hosts
-            regexp: '^127\.0\.0\.1[ \t]+(.*)$'
-            line: '127.0.0.1 {{ cfme_appliance_fqdn if cfme_appliance_fqdn is defined else inventory_hostname }} \1'
-            backrefs: true
-      
     # if you have a CloudForms subscription, connect to it
     # if not, make sure subscribe_to_rhn is set to false or is otherwise undefined.
     - name: register red hat subscription
@@ -102,24 +96,26 @@
   tasks:
     - name: configure appliance for remote database
       block:
+      - set_fact: primary_ip={{ hostvars[groups['primary_db'][0]]['ansible_eth0']['ipv4']['address'] }}
+
       - name: fetch remote encryption key
         shell: >
           appliance_console_cli
-          --fetch-key={{ cfme_primary_db_ip }}
+          --fetch-key={{ primary_ip }}
           --sshlogin=root
           --sshpassword="{{ cfme_default_root_pw }}"
 
       - name: connect to external region in database
         shell: >
           appliance_console_cli
-          --hostname={{ cfme_primary_db_ip }}
+          --hostname={{ primary_ip }}
           --username={{ cfme_db_user }}
           --password={{ cfme_db_pass }}
 
         args:
           chdir: /var/www/miq/vmdb
           creates: REGION
-      when: not cfme_appliance_allinone
+      when: not cfme_appliance_allinone is defined
 
     - name: start evmserverd
       service:
